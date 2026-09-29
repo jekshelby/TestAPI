@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Riwayat Generate</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="container wide">
+        <nav>
+            <a href="/">Editor</a>
+            <a href="/results" class="active">Riwayat</a>
+        </nav>
+
+        <h1>Riwayat Generate</h1>
+
+        {% if generations %}
+        <table class="data-table" id="results-table">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Waktu</th>
+                    <th>Input</th>
+                    <th>Output</th>
+                    <th>Size</th>
+                    <th>Token (II / TI / IO / TO)</th>
+                    <th>Cost (USD)</th>
+                    <th>Prompt</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for g in generations %}
+                <tr id="row-{{ g.id }}" data-id="{{ g.id }}" data-status="{{ g.status or 'pending' }}">
+                    <td>{{ g.id }}</td>
+                    <td class="nowrap">{{ g.created_at }}</td>
+                    <td>
+                        <img src="/uploads/{{ g.input_filename }}" width="60">
+                    </td>
+                    <td class="output-cell">
+                        {% if g.status == 'done' and g.output_filename %}
+                        <a href="/generate/{{ g.output_filename }}" target="_blank">
+                            <img src="/generate/{{ g.output_filename }}" width="60">
+                        </a>
+                        {% elif g.status == 'error' %}
+                        <span class="badge badge-error">❌ Error</span>
+                        {% else %}
+                        <span class="badge badge-loading">
+                            <span class="spinner"></span> Proses...
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="nowrap size-cell">{{ g.size or '-' }}</td>
+                    <td class="nowrap token-cell">
+                        {% if g.status == 'done' %}
+                        {{ g.input_image_tokens }} / {{ g.input_text_tokens }} /
+                        {{ g.output_image_tokens }} / {{ g.output_text_tokens }}
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="cost-cell">
+                        {% if g.status == 'done' %}${{ '%.6f'|format(g.cost_usd) }}{% else %}-{% endif %}
+                    </td>
+                    <td class="prompt-cell">
+                        {% if g.status == 'error' %}
+                        <span class="error-msg">{{ g.error_message }}</span>
+                        {% else %}
+                        {{ g.prompt[:100] }}{% if g.prompt|length > 100 %}...{% endif %}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="muted">Belum ada riwayat. <a href="/">Mulai dari sini</a>.</p>
+        {% endif %}
+    </div>
+
+    <script>
+        const POLL_INTERVAL = 3000;
+
+        function getPendingIds() {
+            return Array.from(document.querySelectorAll('tr[data-status="pending"], tr[data-status="processing"]'))
+                .map(tr => parseInt(tr.dataset.id));
+        }
+
+        async function pollRow(id) {
+            try {
+                const res = await fetch('/api/generation/' + id);
+                if (!res.ok) return;
+                const g = await res.json();
+
+                const tr = document.getElementById('row-' + id);
+                if (!tr) return;
+
+                tr.dataset.status = g.status;
+
+                if (g.status === 'done') {
+                    const outCell = tr.querySelector('.output-cell');
+                    outCell.innerHTML = `
+                <a href="/generate/${g.output_filename}" target="_blank">
+                    <img src="/generate/${g.output_filename}" width="60">
+                </a>`;
+
+                    tr.querySelector('.size-cell').textContent = g.size || '-';
+                    tr.querySelector('.token-cell').textContent =
+                        `${g.input_image_tokens} / ${g.input_text_tokens} / ` +
+                        `${g.output_image_tokens} / ${g.output_text_tokens}`;
+                    tr.querySelector('.cost-cell').textContent = '$' + g.cost_usd.toFixed(6);
+
+                    tr.classList.add('row-done');
+                    setTimeout(() => tr.classList.remove('row-done'), 2000);
+                } else if (g.status === 'error') {
+                    const outCell = tr.querySelector('.output-cell');
+                    outCell.innerHTML = '<span class="badge badge-error">❌ Error</span>';
+                    tr.querySelector('.prompt-cell').innerHTML =
+                        '<span class="error-msg">' + (g.error || 'Unknown error') + '</span>';
+                }
+            } catch (e) {
+                console.warn('Poll error:', e);
+            }
+        }
+
+        async function pollAll() {
+            const ids = getPendingIds();
+            if (ids.length === 0) return;
+            await Promise.all(ids.map(pollRow));
+        }
+
+        setInterval(pollAll, POLL_INTERVAL);
+        pollAll();
+
+        window.addEventListener('load', () => {
+            if (window.location.hash.startsWith('#gen-')) {
+                const el = document.querySelector(window.location.hash);
+                if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    el.classList.add('row-highlight');
+                    setTimeout(() => el.classList.remove('row-highlight'), 3000);
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <title>AI Photo Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <nav>
+            <a href="/" class="active">Editor</a>
+            <a href="/results">Riwayat</a>
+        </nav>
+
+        <h1>AI Photo Editor</h1>
+        <p class="subtitle">Upload foto → pilih opsi → generate.</p>
+
+        <div id="upload-section" class="card">
+            <label class="upload-area" for="file-input">
+                <span class="plus">+</span>
+                <span>Pilih Foto</span>
+                <span class="muted">Klik untuk upload</span>
+            </label>
+            <input type="file" id="file-input" accept="image/*" hidden>
+            <p id="upload-status" class="status"></p>
+        </div>
+
+        <div id="process-section" class="hidden">
+
+            <div class="two-col">
+                <div class="card">
+                    <h3>Foto Asli</h3>
+                    <img id="input-preview" class="preview" src="" alt="input">
+                </div>
+                <div class="card">
+                    <h3>Hasil</h3>
+                    <div id="result-placeholder" class="preview placeholder">Belum ada hasil</div>
+                    <img id="result-img" class="preview hidden" src="" alt="result">
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>Opsi</h3>
+
+                <div class="toggle-row">
+                    <label class="switch">
+                        <input type="checkbox" id="restore-toggle" checked>
+                        <span class="slider"></span>
+                    </label>
+                    <div class="toggle-label">
+                        <b>✨ Restorasi Foto</b>
+                        <span class="muted">Perbaiki blur, noise, dan kerusakan</span>
+                    </div>
+                </div>
+
+                <h3 style="margin-top: 24px;">Edit Pakaian (opsional)</h3>
+                <div class="btn-group" id="mode-selector">
+                    <button class="opt-btn active" data-mode="none">🚫 Tidak</button>
+                    <button class="opt-btn" data-mode="baju">👔 Ganti Baju</button>
+                    <button class="opt-btn" data-mode="kustom">✏️ Kustom</button>
+                </div>
+
+                <div id="panel-baju" class="sub-panel hidden">
+                    <h3>Jenis Pakaian</h3>
+                    <div class="btn-group" id="tipe-baju">
+                        <button class="opt-btn active" data-val="jas">Jas</button>
+                        <button class="opt-btn" data-val="baju formal">Baju Formal</button>
+                        <button class="opt-btn" data-val="blazer">Blazer</button>
+                    </div>
+
+                    <h3>Warna</h3>
+                    <div class="btn-group" id="warna-baju">
+                        <button class="opt-btn active" data-val="hitam">Hitam</button>
+                        <button class="opt-btn" data-val="cokelat">Cokelat</button>
+                        <button class="opt-btn" data-val="putih">Putih</button>
+                    </div>
+                </div>
+
+                <div id="panel-kustom" class="sub-panel hidden">
+                    <h3>Prompt Kustom</h3>
+                    <textarea id="custom-prompt" rows="6" placeholder="Tulis prompt untuk AI..."></textarea>
+                </div>
+
+                <div class="prompt-preview">
+                    <b>Prompt yang akan dikirim:</b>
+                    <div id="prompt-text">-</div>
+                </div>
+
+                <button id="gen-btn">🚀 Generate</button>
+                <p id="status" class="status"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let uploadedFilename = null;
+        let mode = 'none';
+        let tipeBaju = 'jas';
+        let warnaBaju = 'hitam';
+
+        function buildPrompt() {
+            const restoreOn = document.getElementById('restore-toggle').checked;
+            const parts = [];
+
+            if (restoreOn) {
+                parts.push(
+                    "Restore this damaged/blurry photo: remove scratches, stains, " +
+                    "and noise; sharpen blurry areas; naturally reconstruct missing textures."
+                );
+            }
+
+            if (mode === 'baju') {
+                parts.push(
+                    `Change the person's outfit to a formal ${tipeBaju} in ${warnaBaju} color.`
+                );
+            } else if (mode === 'kustom') {
+                const custom = document.getElementById('custom-prompt').value.trim();
+                if (custom) parts.push(custom);
+            }
+
+            if (parts.length > 0) {
+                parts.push(
+                    "Preserve the subject's identity, facial features, skin tone, hair, " +
+                    "and background exactly. Keep composition, pose, and lighting unchanged. " +
+                    "Output a clean, high-resolution, photorealistic image."
+                );
+            }
+
+            return parts.join(' ');
+        }
+
+        function updatePromptPreview() {
+            const p = buildPrompt();
+            document.getElementById('prompt-text').textContent = p || '(tidak ada aksi dipilih)';
+        }
+
+        const fileInput = document.getElementById('file-input');
+        const uploadStatus = document.getElementById('upload-status');
+        const uploadSection = document.getElementById('upload-section');
+        const processSection = document.getElementById('process-section');
+
+        fileInput.addEventListener('change', async () => {
+            if (!fileInput.files.length) return;
+
+            const fd = new FormData();
+            fd.append('file', fileInput.files[0]);
+
+            uploadStatus.textContent = '⏳ Mengupload...';
+            uploadStatus.style.color = '#8B4513';
+
+            try {
+                const res = await fetch('/upload', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Gagal upload');
+
+                uploadedFilename = data.filename;
+
+                uploadSection.classList.add('hidden');
+                processSection.classList.remove('hidden');
+                document.getElementById('input-preview').src = data.url;
+
+                updatePromptPreview();
+            } catch (e) {
+                uploadStatus.textContent = '❌ ' + e.message;
+                uploadStatus.style.color = '#DB1514';
+            }
+        });
+
+        document.getElementById('restore-toggle')
+            .addEventListener('change', updatePromptPreview);
+
+        document.querySelectorAll('#mode-selector .opt-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#mode-selector .opt-btn')
+                    .forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                mode = btn.dataset.mode;
+
+                document.getElementById('panel-baju')
+                    .classList.toggle('hidden', mode !== 'baju');
+                document.getElementById('panel-kustom')
+                    .classList.toggle('hidden', mode !== 'kustom');
+
+                updatePromptPreview();
+            });
+        });
+
+        document.querySelectorAll('#tipe-baju .opt-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#tipe-baju .opt-btn')
+                    .forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                tipeBaju = btn.dataset.val;
+                updatePromptPreview();
+            });
+        });
+
+        document.querySelectorAll('#warna-baju .opt-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('#warna-baju .opt-btn')
+                    .forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                warnaBaju = btn.dataset.val;
+                updatePromptPreview();
+            });
+        });
+
+        document.getElementById('custom-prompt')
+            .addEventListener('input', updatePromptPreview);
+
+        document.getElementById('gen-btn').addEventListener('click', async () => {
+            if (!uploadedFilename) return;
+
+            const prompt = buildPrompt();
+            if (!prompt) {
+                alert('Pilih minimal satu aksi: Restorasi atau Edit Pakaian.');
+                return;
+            }
+
+            const btn = document.getElementById('gen-btn');
+            const statusEl = document.getElementById('status');
+
+            btn.disabled = true;
+            statusEl.textContent = '⏳ Mengirim ke server...';
+            statusEl.style.color = '#8B4513';
+
+            try {
+                const res = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: uploadedFilename, prompt })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Gagal generate');
+
+                window.location.href = '/results#gen-' + data.id;
+
+            } catch (e) {
+                statusEl.textContent = '❌ ' + e.message;
+                statusEl.style.color = '#DB1514';
+                btn.disabled = false;
+            }
+        });
+    </script>
+</body>
+
+</html>
